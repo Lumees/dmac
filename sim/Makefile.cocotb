@@ -1,0 +1,43 @@
+TOPLEVEL_LANG := verilog
+SIM           := verilator
+
+TOPLEVEL ?= dmac_top_tb
+MODULE   ?= test_dmac_top
+
+N_CH ?= 4
+
+RTL_DIR   := $(realpath ../rtl)
+TB_DIR    := $(realpath ../tb/directed)
+MODEL_DIR := $(realpath ../model)
+
+VERILOG_SOURCES := \
+	$(RTL_DIR)/dmac_pkg.sv \
+	$(RTL_DIR)/dmac_channel.sv \
+	$(RTL_DIR)/dmac_arbiter.sv \
+	$(RTL_DIR)/dmac_core.sv \
+	$(RTL_DIR)/dmac_top.sv \
+	$(RTL_DIR)/dmac_top_tb.sv
+
+COMPILE_ARGS += +define+DMAC_PKG_N_CH=$(N_CH)
+COMPILE_ARGS += --timing
+COMPILE_ARGS += -Wno-WIDTHTRUNC -Wno-WIDTHEXPAND -Wno-CASEINCOMPLETE -Wno-UNSIGNED
+
+export DMAC_N_CH=$(N_CH)
+export PYTHONPATH := $(TB_DIR):$(MODEL_DIR):$(PYTHONPATH)
+
+SIM_BUILD := sim_build_dmac
+
+include $(shell cocotb-config --makefiles)/Makefile.sim
+
+.PHONY: sim-top sim-axil
+
+sim-top:
+	$(MAKE) -f Makefile.cocotb \
+		TOPLEVEL=dmac_top_tb MODULE=test_dmac_top \
+		SIM_BUILD=sim_build_dmac
+
+sim-axil:
+	$(MAKE) -f Makefile.cocotb \
+		TOPLEVEL=dmac_axil MODULE=test_dmac_axil \
+		VERILOG_SOURCES="$(RTL_DIR)/dmac_pkg.sv $(RTL_DIR)/dmac_channel.sv $(RTL_DIR)/dmac_arbiter.sv $(RTL_DIR)/dmac_core.sv $(RTL_DIR)/dmac_top.sv $(RTL_DIR)/dmac_axil.sv" \
+		SIM_BUILD=sim_build_dmac_axil
