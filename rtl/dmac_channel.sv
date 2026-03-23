@@ -240,8 +240,8 @@ module dmac_channel #(
               state <= CH_WRITE_REQ;  // more in FIFO
             else
               state <= CH_READ_REQ;   // need more reads
-          end
-          if (bus_err_i) begin
+          end else if (bus_err_i) begin
+            // Error takes priority — don't decrement remain_cnt
             te_o      <= 1'b1;
             bus_req_o <= 1'b0;
             state     <= CH_DONE;

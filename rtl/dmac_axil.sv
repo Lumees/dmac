@@ -163,6 +163,18 @@ module dmac_axil #(
   assign s_axil_awready = !aw_active;
   assign s_axil_wready  = !w_active;
 
+  // ── Combinational channel address decode (synthesis-safe) ────────────────
+  logic [7:0] axil_wr_ch_off;
+  logic [2:0] axil_wr_ch_idx;
+  logic [7:0] axil_rd_ch_off;
+  logic [2:0] axil_rd_ch_idx;
+  always_comb begin
+    axil_wr_ch_off = wr_addr - 8'h10;
+    axil_wr_ch_idx = axil_wr_ch_off[5:3];
+    axil_rd_ch_off = s_axil_araddr[9:2] - 8'h10;
+    axil_rd_ch_idx = axil_rd_ch_off[5:3];
+  end
+
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       aw_active         <= 1'b0;
@@ -218,26 +230,21 @@ module dmac_axil #(
         // Per-channel registers
         else if (wr_addr >= 8'h10) begin
           // Channel index = (wr_addr - 0x10) / 0x08
-          // Byte offset 0x40 => word offset 0x10, stride 0x20 => word stride 0x08
-          logic [7:0] ch_offset;
-          logic [2:0] ch_idx;
-          ch_offset = wr_addr - 8'h10;
-          ch_idx    = ch_offset[5:3];
-          if (int'(ch_idx) < NUM_CH) begin
-            case (ch_offset[2:0])
+          if (int'(axil_wr_ch_idx) < NUM_CH) begin
+            case (axil_wr_ch_off[2:0])
               3'h0: begin  // CH_CTRL
-                reg_ch_ctrl[ch_idx] <= wdata_lat;
+                reg_ch_ctrl[axil_wr_ch_idx] <= wdata_lat;
                 // Writing enable bit triggers start pulse
                 if (wdata_lat[CTRL_ENABLE])
-                  ch_start[ch_idx] <= 1'b1;
+                  ch_start[axil_wr_ch_idx] <= 1'b1;
               end
               3'h1: begin  // CH_STATUS (W1C for tc/ht/te bits)
                 // Clear sticky bits (handled in irq_status)
               end
-              3'h2: reg_ch_src[ch_idx]   <= wdata_lat;       // CH_SRC
-              3'h3: reg_ch_dst[ch_idx]   <= wdata_lat;       // CH_DST
-              3'h4: reg_ch_count[ch_idx] <= wdata_lat[15:0]; // CH_COUNT
-              3'h5: reg_ch_ndesc[ch_idx] <= wdata_lat;       // CH_NDESC
+              3'h2: reg_ch_src[axil_wr_ch_idx]   <= wdata_lat;       // CH_SRC
+              3'h3: reg_ch_dst[axil_wr_ch_idx]   <= wdata_lat;       // CH_DST
+              3'h4: reg_ch_count[axil_wr_ch_idx] <= wdata_lat[15:0]; // CH_COUNT
+              3'h5: reg_ch_ndesc[axil_wr_ch_idx] <= wdata_lat;       // CH_NDESC
               // 3'h6: CH_CDESC read-only
               // 3'h7: CH_REMAIN read-only
               default: ;
@@ -267,22 +274,19 @@ module dmac_axil #(
           8'h03: s_axil_rdata <= core_version;
           default: begin
             if (s_axil_araddr[9:2] >= 8'h10) begin
-              logic [7:0] rd_ch_off;
-              logic [2:0] rd_ch_idx;
-              rd_ch_off = s_axil_araddr[9:2] - 8'h10;
-              rd_ch_idx = rd_ch_off[5:3];
-              if (int'(rd_ch_idx) < NUM_CH) begin
-                case (rd_ch_off[2:0])
-                  3'h0: s_axil_rdata <= reg_ch_ctrl[rd_ch_idx];
-                  3'h1: s_axil_rdata <= {28'b0, ch_busy[rd_ch_idx],
-                                         ch_te[rd_ch_idx], ch_ht[rd_ch_idx],
-                                         ch_tc[rd_ch_idx]};
-                  3'h2: s_axil_rdata <= reg_ch_src[rd_ch_idx];
-                  3'h3: s_axil_rdata <= reg_ch_dst[rd_ch_idx];
-                  3'h4: s_axil_rdata <= {16'b0, reg_ch_count[rd_ch_idx]};
-                  3'h5: s_axil_rdata <= reg_ch_ndesc[rd_ch_idx];
+              // Uses axil_rd_ch_off / axil_axil_rd_ch_idx from always_comb below
+              if (int'(axil_rd_ch_idx) < NUM_CH) begin
+                case (axil_rd_ch_off[2:0])
+                  3'h0: s_axil_rdata <= reg_ch_ctrl[axil_rd_ch_idx];
+                  3'h1: s_axil_rdata <= {28'b0, ch_busy[axil_rd_ch_idx],
+                                         ch_te[axil_rd_ch_idx], ch_ht[axil_rd_ch_idx],
+                                         ch_tc[axil_rd_ch_idx]};
+                  3'h2: s_axil_rdata <= reg_ch_src[axil_rd_ch_idx];
+                  3'h3: s_axil_rdata <= reg_ch_dst[axil_rd_ch_idx];
+                  3'h4: s_axil_rdata <= {16'b0, reg_ch_count[axil_rd_ch_idx]};
+                  3'h5: s_axil_rdata <= reg_ch_ndesc[axil_rd_ch_idx];
                   3'h6: s_axil_rdata <= 32'h0;  // CH_CDESC placeholder
-                  3'h7: s_axil_rdata <= {16'b0, ch_remain[rd_ch_idx]};
+                  3'h7: s_axil_rdata <= {16'b0, ch_remain[axil_rd_ch_idx]};
                   default: s_axil_rdata <= 32'hDEAD_BEEF;
                 endcase
               end else begin
