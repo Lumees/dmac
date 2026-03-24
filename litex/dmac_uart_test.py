@@ -111,6 +111,14 @@ def check(name, condition, detail=""):
 def test_version(dut: DMACClient):
     """T01: Read VERSION register, expect 0x00010000."""
     print("\n[T01] Version register")
+    # Reset all CSRs to known state
+    dut.set_global_enable(False)
+    dut._w("ch_start", 0)
+    dut._w("ch_ctrl", 0)
+    dut._w("ch_src", 0)
+    dut._w("ch_dst", 0)
+    dut._w("ch_count", 0)
+    import time; time.sleep(0.05)
     ver = dut.version()
     check("VERSION == 0x00010000", ver == 0x00010000, f"got 0x{ver:08X}")
 

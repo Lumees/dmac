@@ -91,9 +91,20 @@ class DMAC(Module, AutoCSR):
         bus_rdata  = Signal(32)
         bus_err    = Signal()
 
-        # Start pulse: fires when ch_start is written with bit[0]=1
+        # Start pulse: fires one cycle after ch_start is written with bit[0]=1
+        # Register to avoid comb race between re and storage update
         start_pulse = Signal()
-        self.comb += start_pulse.eq(self.ch_start.re & self.ch_start.storage[0])
+        start_pending = Signal()
+        self.sync += [
+            start_pulse.eq(0),
+            If(self.ch_start.re & self.ch_start.storage[0],
+                start_pending.eq(1),
+            ),
+            If(start_pending,
+                start_pulse.eq(1),
+                start_pending.eq(0),
+            ),
+        ]
 
         # Status — latch TC/HT/TE pulses into sticky flags (cleared on start)
         tc_sticky = Signal(reset=0)
@@ -177,11 +188,23 @@ class DMAC(Module, AutoCSR):
             bus_rdata.eq(dma_port.dat_r),
         ]
 
+        # ── Reset stretcher: ensure rst_n has a clean negedge after power-up ──
+        rst_cnt = Signal(4, reset=0)
+        rst_n_stretched = Signal(reset=0)
+        self.sync += [
+            If(rst_cnt < 15,
+                rst_cnt.eq(rst_cnt + 1),
+                rst_n_stretched.eq(0),
+            ).Else(
+                rst_n_stretched.eq(1),
+            ),
+        ]
+
         # ── DMAC top wrapper instance (flat ports, no unpacked arrays) ────
         self.specials += Instance("dmac_top_wrap",
             p_NUM_CH        = 1,
             i_clk           = ClockSignal(),
-            i_rst_n         = ~ResetSignal(),
+            i_rst_n         = rst_n_stretched & ~ResetSignal(),
             i_global_enable = self.ctrl.storage[0],
 
             # Per-channel config (flat packed, 1 channel = 32/16 bits)
